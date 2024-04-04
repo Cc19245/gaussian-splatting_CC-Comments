@@ -36,16 +36,18 @@ def getWorld2View(R, t):
     return np.float32(Rt)
 
 def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
-    Rt = np.zeros((4, 4))
-    Rt[:3, :3] = R.transpose()
-    Rt[:3, 3] = t
+    Rt = np.zeros((4, 4))  # 按理来说是世界到相机的变换矩阵，但没有加平移和缩放
+    #! 疑问：这里为什么要transpose?
+    # 解答：因为在这之前从原始数据文件读入R的时候读的就是c2w，这里转置变成w2c
+    Rt[:3, :3] = R.transpose()   # R=c2w
+    Rt[:3, 3] = t    # t=w2c
     Rt[3, 3] = 1.0
 
-    C2W = np.linalg.inv(Rt)
-    cam_center = C2W[:3, 3]
-    cam_center = (cam_center + translate) * scale
-    C2W[:3, 3] = cam_center
-    Rt = np.linalg.inv(C2W)
+    C2W = np.linalg.inv(Rt)  # 相机到世界的变换矩阵
+    cam_center = C2W[:3, 3]  # 相机中心在世界中的坐标，即C2W矩阵第四列的三维平移向量
+    cam_center = (cam_center + translate) * scale  # 相机中心坐标需要平移和缩放处理
+    C2W[:3, 3] = cam_center  # 重新填入C2W矩阵
+    Rt = np.linalg.inv(C2W)  # 再取逆获得W2C矩阵
     return np.float32(Rt)
 
 def getProjectionMatrix(znear, zfar, fovX, fovY):
@@ -61,6 +63,8 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
 
     z_sign = 1.0
 
+    # 下面这个投影矩阵应该是把相机空间中的一个锥台空间投影一个光线平行的空间 
+    # https://zhuanlan.zhihu.com/p/628675070
     P[0, 0] = 2.0 * znear / (right - left)
     P[1, 1] = 2.0 * znear / (top - bottom)
     P[0, 2] = (right + left) / (right - left)

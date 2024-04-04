@@ -17,12 +17,12 @@
 #include <cuda.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include <cub/cub.cuh>
+#include <cub/cub.cuh>   // CUDA的CUB库
 #include <cub/device/device_radix_sort.cuh>
 #define GLM_FORCE_CUDA
-#include <glm/glm.hpp>
+#include <glm/glm.hpp>   // GLM (OpenGL Mathematics)库
 
-#include <cooperative_groups.h>
+#include <cooperative_groups.h>   // CUDA 9引入的Cooperative Groups库
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
 
@@ -33,31 +33,33 @@ namespace cg = cooperative_groups;
 // 寻找给定无符号整数 n 的最高有效位（Most Significant Bit, MSB）的下一个最高位
 // Helper function to find the next-highest bit of the MSB
 // on the CPU.
+// 查找最高有效位(most significant bit），输入变量n表示tile编号最大值x、y的乘积
 uint32_t getHigherMsb(uint32_t n)
 {
-	uint32_t msb = sizeof(n) * 4;
+	uint32_t msb = sizeof(n) * 4;  //4*4=16
 	uint32_t step = msb;
 	while (step > 1)
 	{
-		step /= 2;
-		if (n >> msb)
+		step /= 2;      // 缩小2倍
+		if (n >> msb)   // 右移16位，相当于除以2的16次方
 			msb += step;
 		else
 			msb -= step;
 	}
-	if (n >> msb)
+	if (n >> msb)       // 如果n的最高位大于0，则msb+1
 		msb++;
 	return msb;
 }
 
 // Wrapper method to call auxiliary coarse frustum containment test.
 // Mark all Gaussians that pass it.
-__global__ void checkFrustum(int P,
-	const float* orig_points,
-	const float* viewmatrix,
-	const float* projmatrix,
-	bool* present)
+__global__ void checkFrustum(int P,   // 所有点的个数
+	const float* orig_points,   // 原始点的坐标（world系）
+	const float* viewmatrix,    // w2c，原始点的world系到cam系的变换矩阵
+	const float* projmatrix,    // 投影矩阵
+	bool* present)   // 结果保存到present中，表示某个点是否在视锥中
 {
+	// 返回当前thread的值
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= P)
 		return;
@@ -66,19 +68,24 @@ __global__ void checkFrustum(int P,
 	present[idx] = in_frustum(idx, orig_points, viewmatrix, projmatrix, false, p_view);
 }
 
+/**
+ * @brief 计算2d高斯椭圆中心点points_xy在2d像素平面上占据的tile的tileID，
+ *  并将tileID|depth组合成64位的key值，value值为高斯球的编号
+ * 
+ */
 // Generates one key/value pair for all Gaussian / tile overlaps. 
 // Run once per Gaussian (1:N mapping).
 __global__ void duplicateWithKeys(
 	int P,
-	const float2* points_xy,
-	const float* depths,
-	const uint32_t* offsets,
-	uint64_t* gaussian_keys_unsorted,
-	uint32_t* gaussian_values_unsorted,
-	int* radii,
-	dim3 grid)
-{
-	auto idx = cg::this_grid().thread_rank();
+	const float2* points_xy,   // 每个3D高斯中心点投影到图像上之后的2D坐标
+	const float* depths,       // 每个3D高斯中心点从world系转移到相机系后的Z轴深度
+	const uint32_t* offsets,   // 每个投影后的2D高斯覆盖的tiles数量的前缀和累积数组
+	uint64_t* gaussian_keys_unsorted,    // 未排序的key（tileID|depth）
+	uint32_t* gaussian_values_unsorted,  //未排序的valu（depth）
+	int* radii,  // 每个3D高斯投影到图像上的2D高斯的最大半径（椭圆长轴）
+	dim3 grid)   // dim3, 表示长宽方向要多少个tile才能覆盖整张图像
+{  
+	auto idx = cg::this_grid().thread_rank();  // 线程索引，该线程处理第idx个Gaussian
 	if (idx >= P)
 		return;
 
@@ -86,9 +93,12 @@ __global__ void duplicateWithKeys(
 	if (radii[idx] > 0)
 	{
 		// Find this Gaussian's offset in buffer for writing keys/values.
+		//; 第idx个高斯球前面已经占据的tiles总数，用于在gaussian_keys_unsorted和
+		//; gaussian_values_unsorted中存储本次生成的key/value的索引起点
 		uint32_t off = (idx == 0) ? 0 : offsets[idx - 1];
-		uint2 rect_min, rect_max;
+		uint2 rect_min, rect_max;  // 占据网格的左上角位置、右下角位置
 
+		// 因为要给Gaussian覆盖的每个tile生成一个(key, value)对，所以先获取它占了哪些tile
 		getRect(points_xy[idx], radii[idx], rect_min, rect_max, grid);
 
 		// 对于边界矩形重叠的每个瓦片，具有一个键/值对。
@@ -104,12 +114,12 @@ __global__ void duplicateWithKeys(
 		{
 			for (int x = rect_min.x; x < rect_max.x; x++)
 			{
-				uint64_t key = y * grid.x + x;
-				key <<= 32;
-				key |= *((uint32_t*)&depths[idx]);
-				gaussian_keys_unsorted[off] = key;
-				gaussian_values_unsorted[off] = idx;
-				off++;
+				uint64_t key = y * grid.x + x;  // tile的ID
+				key <<= 32;  // 放在高位，左移32位，把后面32位空出来
+				key |= *((uint32_t*)&depths[idx]);  // 低位是深度
+				gaussian_keys_unsorted[off] = key;    // key是前面组合出来的
+				gaussian_values_unsorted[off] = idx;  // value是3D高斯的idx
+				off++;  // 当前高斯占据的tile总数增加一个，所以索引++
 			}
 		}
 	}
@@ -120,7 +130,10 @@ __global__ void duplicateWithKeys(
 // Check keys to see if it is at the start/end of one tile's range in 
 // the full sorted list. If yes, write start/end of this tile. 
 // Run once per instanced (duplicated) Gaussian ID.
-__global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* ranges)
+__global__ void identifyTileRanges(
+	int L,   // 排序列表中的元素个数
+	uint64_t* point_list_keys,   // 排过序的keys
+	uint2* ranges)   // ranges[tile_id].x和y表示第tile_id个tile在排过序的列表中的起始和终止索引
 {
 	auto idx = cg::this_grid().thread_rank();
 	if (idx >= L)
@@ -128,12 +141,13 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 
 	// Read tile ID from key. Update start/end of tile range if at limit.
 	uint64_t key = point_list_keys[idx];
-	uint32_t currtile = key >> 32;
-	if (idx == 0)
-		ranges[currtile].x = 0;
+	uint32_t currtile = key >> 32;  // 当前tile ID 
+	if (idx == 0) 
+		ranges[currtile].x = 0;  // 边界条件：tile 0的起始位置
 	else
 	{
 		uint32_t prevtile = point_list_keys[idx - 1] >> 32;
+		// 上一个元素和我处于不同的tile，那我是上一个tile的终止位置和我所在tile的起始位置
 		if (currtile != prevtile)
 		{
 			ranges[prevtile].y = idx;
@@ -141,7 +155,7 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 		}
 	}
 	if (idx == L - 1)
-		ranges[currtile].y = L;
+		ranges[currtile].y = L;  // 边界条件：最后一个tile的终止位置
 }
 
 // Mark Gaussians as visible/invisible, based on view frustum testing
@@ -173,6 +187,9 @@ CudaRasterizer::GeometryState CudaRasterizer::GeometryState::fromChunk(char*& ch
 	obtain(chunk, geom.conic_opacity, P, 128);
 	obtain(chunk, geom.rgb, P * 3, 128);
 	obtain(chunk, geom.tiles_touched, P, 128);
+	// 计算数组的前缀和,InclusiveSum表示包括自身，ExclusiveSum表示不包括自身
+    // 参数：第三个in，第四个out，最后一个num。当第一个参数为NULL时, 所需的分配大小被写入第二个参数，并且不执行任何工作
+    // https://github.com/dmlc/cub/blob/master/cub/device/device_scan.cuh
 	cub::DeviceScan::InclusiveSum(nullptr, geom.scan_size, geom.tiles_touched, geom.tiles_touched, P);
 	obtain(chunk, geom.scanning_space, geom.scan_size, 128);
 	obtain(chunk, geom.point_offsets, P, 128);
@@ -211,31 +228,34 @@ int CudaRasterizer::Rasterizer::forward(
 	std::function<char* (size_t)> geometryBuffer,
 	std::function<char* (size_t)> binningBuffer,
 	std::function<char* (size_t)> imageBuffer,
-	const int P, int D, int M,
-	const float* background,
-	const int width, int height,
-	const float* means3D,
-	const float* shs,
-	const float* colors_precomp,
-	const float* opacities,
-	const float* scales,
-	const float scale_modifier,
-	const float* rotations,
-	const float* cov3D_precomp,
-	const float* viewmatrix,
-	const float* projmatrix,
-	const float* cam_pos,
-	const float tan_fovx, float tan_fovy,
-	const bool prefiltered,
-	float* out_color,
-	int* radii,
+	const int P, int D, int M,   // 点的个数，当前激活的最大球谐次数，所有球谐基函数的个数
+	const float* background,     // [0, 0, 0], 背景颜色
+	const int width, int height, // 要渲染的图像宽高
+	const float* means3D,   // (P, 3), 高斯中心点位置
+	const float* shs,       // (P, 16, 3), 球谐系数
+	const float* colors_precomp,   // None
+	const float* opacities,   // (P, 1), 高斯中心点的不透明度
+	const float* scales,      // (P, 3), 尺度
+	const float scale_modifier,  // 尺度缩放因子，和场景大小有关
+	const float* rotations,      // (P, 4), 旋转
+	const float* cov3D_precomp,  // None
+	const float* viewmatrix,     // (4, 4), W2C
+	const float* projmatrix,     // (4, 4), 整个投影矩阵，包括W2C和视角变换矩阵
+	const float* cam_pos,        // (3, ), 相机中心位置
+	const float tan_fovx, float tan_fovy,   // 相机FoV
+	const bool prefiltered,      // False
+	float* out_color,    // (3, H, W), 渲染的图像
+	int* radii,   // (P, ), 每个高斯球投影到图像上的最大半径
 	bool debug)
 {
 	const float focal_y = height / (2.0f * tan_fovy);  // 垂直方向的焦距 focal_y
 	const float focal_x = width / (2.0f * tan_fovx);   // 水平方向的焦距 focal_x
 
-	size_t chunk_size = required<GeometryState>(P);  // 计算存储所有3D gaussian的各个参数所需要的空间大小
-	char* chunkptr = geometryBuffer(chunk_size);  // 给所有3D gaussian的各个参数分配存储空间, 并返回存储空间的指针
+	// Step 1. 为每个高斯球 GeometryState 和输出图像像素 ImageState 的数据结构分配内存空间
+	// 模版函数required调用fromChunk函数来获取内存，返回结束地址，也即所需存储大小
+	size_t chunk_size = required<GeometryState>(P);  
+	// 调用rasterize_points.cu文件中的resizeFunctional函数里面嵌套的匿名函数lambda来调整显存块大小，并返回首地址
+	char* chunkptr = geometryBuffer(chunk_size);  
 	// 在给定的内存块中初始化 GeometryState 结构体, 为不同成员分配空间，并返回一个初始化的实例
 	GeometryState geomState = GeometryState::fromChunk(chunkptr, P);
 
@@ -244,10 +264,11 @@ int CudaRasterizer::Rasterizer::forward(
 		radii = geomState.internal_radii;  // 指向radii数据的指针
 	}
 	
+	// dim3是CUDA定义的含义x,y,z三个成员的三维unsigned int向量类, tile_grid就是x和y方向上tile的个数
 	// 定义了一个三维网格（dim3 是 CUDA 中定义三维网格维度的数据类型），确定了在水平和垂直方向上需要多少个块来覆盖整个渲染区域
 	dim3 tile_grid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y, 1);
 	// 确定了每个块在 X（水平）和 Y（垂直）方向上的线程数
-	dim3 block(BLOCK_X, BLOCK_Y, 1);
+	dim3 block(BLOCK_X, BLOCK_Y, 1);  // 块中线程数量，16*16
 
 	// Dynamically resize image-based auxiliary buffers during training
 	// 计算存储所有2D pixel的各个参数所需要的空间大小
@@ -262,107 +283,131 @@ int CudaRasterizer::Rasterizer::forward(
 		throw std::runtime_error("For non-RGB, provide precomputed Gaussian colors!");
 	}
 
+	// Step 2. 预处理：计算3D高斯中心点的深度、投影的像素位置、投影到图像上的像素颜色，2D高斯的协方差矩阵和最大半径
 	// Run preprocessing per-Gaussian (transformation, bounding, conversion of SHs to RGB)
+	// 预处理，主要涉及把3D的Gaussian投影到2D
 	CHECK_CUDA(FORWARD::preprocess(
-		P, D, M,  // 3D gaussian的个数, 球谐函数的次数, 球谐系数的个数 (球谐系数用于表示颜色)
-		means3D,  // 每个3D gaussian的XYZ均值
-		(glm::vec3*)scales,  // 每个3D gaussian的XYZ尺度
+		P, D, M,  // 3D gaussian的个数, 当前激活的球谐函数的次数, 所有球谐系数的个数 
+		means3D,  // (P, 3), 每个3D gaussian的XYZ均值
+		(glm::vec3*)scales,  // (P, 3), 每个3D gaussian的XYZ尺度
 		scale_modifier,   // 尺度缩放系数, 1.0
-		(glm::vec4*)rotations,  // 每个3D gaussian的旋转四元组
+		(glm::vec4*)rotations,  // (P, 4), 每个3D gaussian的旋转四元组
 		opacities,    // 每个3D gaussian的不透明度
-		shs,   // 每个3D gaussian的球谐系数, 用于表示颜色
-		geomState.clamped,  // 存储每个3D gaussian的R、G、B是否小于0
+		shs,   // (P, 16, 3), 每个3D gaussian的球谐系数, 用于表示颜色
+		geomState.clamped,  // (P, 3), 存储每个3D gaussian的R、G、B是否小于0
 		cov3D_precomp,   // 提前计算好的每个3D gaussian的协方差矩阵, []
 		colors_precomp,  // 提前计算好的每个3D gaussian的颜色, []
-		viewmatrix,   // 相机外参矩阵, world to camera
-		projmatrix,   // 投影矩阵, world to image
-		(glm::vec3*)cam_pos,  // 所有相机的中心点XYZ坐标
+		viewmatrix,   // (4, 4), 相机外参矩阵, world to camera
+		projmatrix,   // (4, 4), 整个投影矩阵，包括W2C和视角变换矩阵
+		(glm::vec3*)cam_pos,  // (3,), 相机的中心点XYZ坐标
 		width, height,        // 图像的宽和高
 		focal_x, focal_y,     // 水平、垂直方向的焦距
 		tan_fovx, tan_fovy,   // 水平、垂直视场角一半的正切值
-		radii,  // 存储每个2D gaussian在图像上的半径
-		geomState.means2D,   // 存储每个2D gaussian的均值
-		geomState.depths,    // 存储每个2D gaussian的深度
-		geomState.cov3D,     // 存储每个3D gaussian的协方差矩阵
-		geomState.rgb,       // 存储每个2D pixel的颜色
-		geomState.conic_opacity,  // 存储每个2D gaussian的协方差矩阵的逆矩阵以及它的不透明度
+		radii,    // (P,), 存储每个2D gaussian在图像上的半径
+		geomState.means2D,   // (P, 2), 存储每个2D gaussian的均值
+		geomState.depths,    // (P,), 存储每个2D gaussian的深度
+		geomState.cov3D,     // (P, 6), 存储每个3D gaussian的协方差矩阵
+		geomState.rgb,       // (P, 3), 存储每个2D pixel的颜色
+		geomState.conic_opacity,  // (P, 4), 存储每个2D gaussian的协方差矩阵的逆矩阵以及它的不透明度
 		tile_grid,  // 在水平和垂直方向上需要多少个块来覆盖整个渲染区域
-		geomState.tiles_touched,  // 存储每个2D gaussian覆盖了多少个tile
-		prefiltered    // 是否预先过滤掉了中心点(均值XYZ)不在视锥（frustum）内的3D gaussian
+		geomState.tiles_touched,  // (P,), 存储每个2D gaussian覆盖了多少个tile
+		prefiltered    // False, 是否预先过滤掉了中心点(均值XYZ)不在视锥（frustum）内的3D gaussian
 	), debug)
 
+	// Step 2.使用InclusiveSums计算所有高斯覆盖的tile的总数，并用于申请BinningState的显存
+	// ---开始--- 通过视图变换 W 计算出像素与所有重叠高斯的距离，即这些高斯的深度，形成一个有序的高斯列表
 	// Compute prefix sum over full list of touched tile counts by Gaussians
 	// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
-	CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P), debug)
+	// 这步是为duplicateWithKeys做准备，计算出每个Gaussian对应的keys和values在数组中存储的起始位置）
+	// 同步运行InclusiveSum，获取tiles_touched数组的前缀和，存到point_offsets中
+	CHECK_CUDA(cub::DeviceScan::InclusiveSum(
+		geomState.scanning_space, geomState.scan_size, 
+		geomState.tiles_touched, geomState.point_offsets, P), debug)
 
 	// Retrieve total number of Gaussian instances to launch and resize aux buffers
-	int num_rendered;  // 存储所有的2D gaussian总共覆盖了多少个tile
+	int num_rendered;  // 所有的2D gaussian总共覆盖了多少个tile
 	// 将 geomState.point_offsets 数组中最后一个元素的值复制到主机内存中的变量 num_rendered
+	// 把指针（point_offsets + P - 1），也就是point_offsets数组的最后一个元素的值，赋给num_rendered，也就是总共覆盖的tiles数量
 	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
 
+	// 计算所需的BinningState的数量，即每个高斯球覆盖的tile都有对应的装箱状态BinningState数据
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
+	// 调整显存块大小，并返回首地址
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);
+    // 用显存块首地址作为参数，调用fromChunk函数来申请显存
 	BinningState binningState = BinningState::fromChunk(binning_chunkptr, num_rendered);
-
+	
+	// Step 3. 生成tile和3D高斯深度组成的key / 3D高斯索引组成的value  的键值对
 	// 将每个3D gaussian的对应的tile index和深度存到point_list_keys_unsorted中
     // 将每个3D gaussian的对应的index（第几个3D gaussian）存到point_list_unsorted中
 	// For each instance to be rendered, produce adequate [ tile | depth ] key 
 	// and corresponding dublicated Gaussian indices to be sorted
-	duplicateWithKeys << <(P + 255) / 256, 256 >> > (
+	duplicateWithKeys << <(P + 255) / 256, 256 >> > (  // 根据 tile，复制 Gaussian
 		P,
-		geomState.means2D,
-		geomState.depths,
-		geomState.point_offsets,
-		binningState.point_list_keys_unsorted,
-		binningState.point_list_unsorted,
-		radii,
-		tile_grid)
-	CHECK_CUDA(, debug)
+		geomState.means2D,   // 每个3D高斯的中心点投影到图像上的像素坐标
+		geomState.depths,    // 每个3D高斯中心点从world系转移到相机系后的Z轴深度
+		geomState.point_offsets,    // 这里用到上步InclusiveSum得到的累计高斯球touch的tiles数
+		binningState.point_list_keys_unsorted,  // 存储key（tileID|depth）
+		binningState.point_list_unsorted,  // 存储对应的高斯球idx
+		radii,   // 像素平面上高斯圆的半径，最长轴的3倍
+		tile_grid)  // 全图中tile的数量
+	CHECK_CUDA(, debug)    // 同步，并检查错误
 
+	// 查找tile_grid.x * tile_grid.y的最高位
 	int bit = getHigherMsb(tile_grid.x * tile_grid.y);
 
+	// Step 4. 依据key进行排序，这样根据tile的ID和深度值从小到大排序
+    // https://nvlabs.github.io/cub/structcub_1_1_device_radix_sort.html
 	// 对一个键值对列表进行排序。这里的键值对由 binningState.point_list_keys_unsorted 和 binningState.point_list_unsorted 组成
     // 排序后的结果存储在 binningState.point_list_keys 和 binningState.point_list 中
     // binningState.list_sorting_space 和 binningState.sorting_size 指定了排序操作所需的临时存储空间和其大小
     // num_rendered 是要排序的元素总数。0, 32 + bit 指定了排序的最低位和最高位，这里用于确保排序考虑到了足够的位数，以便正确处理所有的键值对
 	// Sort complete list of (duplicated) Gaussian indices by keys
-	CHECK_CUDA(cub::DeviceRadixSort::SortPairs(
-		binningState.list_sorting_space,
-		binningState.sorting_size,
+	CHECK_CUDA(cub::DeviceRadixSort::SortPairs( // 对复制后的所有 Gaussians 进行排序，排序的结果可供平行化渲染使用
+		binningState.list_sorting_space,  // 辅助空间
+		binningState.sorting_size,   // 辅助空间大小
+		// d_keys_in, d_keys_out
 		binningState.point_list_keys_unsorted, binningState.point_list_keys,
+		// d_values_in, d_values_out
 		binningState.point_list_unsorted, binningState.point_list,
+		// num_rendered是要排序的元素总数(总共覆盖的tiles数量)，开始bit位，结束比特位
 		num_rendered, 0, 32 + bit), debug)
 
-	// 将 imgState.ranges 数组中的所有元素设置为 0
+	// 将 imgState.ranges 数组中的所有元素设置为 0，长度为tile_grid.x * tile_grid.y * sizeof(uint2)
 	CHECK_CUDA(cudaMemset(imgState.ranges, 0, tile_grid.x * tile_grid.y * sizeof(uint2)), debug);
 
-	// 识别每个瓦片（tile）在排序后的高斯ID列表中的范围
+	// Step 5. 计算每个瓦片（tile）在排序后的高斯ID列表中的范围
     // 目的是确定哪些高斯ID属于哪个瓦片，并记录每个瓦片的开始和结束位置
 	// Identify start and end of per-tile workloads in sorted list
 	if (num_rendered > 0)
+		// 根据有序的Gaussian列表，判断每个 tile 需要跟哪一个 range 内的 Gaussians 进行计算
+		// 计算每个tile对应排序过的数组中的哪一部分
 		identifyTileRanges << <(num_rendered + 255) / 256, 256 >> > (
 			num_rendered,
 			binningState.point_list_keys,
 			imgState.ranges);
 	CHECK_CUDA(, debug)
+	// ---结束--- 通过视图变换 W 计算出像素与所有重叠高斯的距离，即这些高斯的深度，形成一个有序的高斯列表
 
 	// Let each tile blend its range of Gaussians independently in parallel
 	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
+	// Step 6. 调用核心渲染函数，具体实现在 forward.cu/renderCUDA
 	CHECK_CUDA(FORWARD::render(
-		tile_grid,   // 在水平和垂直方向上需要多少个块来覆盖整个渲染区域
-		block,  // 每个块在 X（水平）和 Y（垂直）方向上的线程数
+		tile_grid,   // 在水平和垂直方向上需要多少个block来覆盖整个渲染区域
+		block,  // 每个block在 X（水平）和 Y（垂直）方向上的线程数
 		imgState.ranges,  // 每个瓦片（tile）在排序后的高斯ID列表中的范围
 		binningState.point_list,  // 排序后的3D gaussian的id列表
 		width, height,  // 图像的宽和高
-		geomState.means2D,  // 每个2D gaussian在图像上的中心点位置
-		feature_ptr,   // 每个3D gaussian对应的RGB颜色
-		geomState.conic_opacity,  // 每个2D gaussian的协方差矩阵的逆矩阵以及它的不透明度
-		imgState.accum_alpha,  // 渲染过程后每个像素的最终透明度或透射率值
-		imgState.n_contrib,  // 每个pixel的最后一个贡献的2D gaussian是谁
+		geomState.means2D,  // (P, 2), 每个2D gaussian在图像上的中心点位置
+		feature_ptr,   // (P, 3), 每个3D gaussian对应的RGB颜色
+		geomState.conic_opacity,  // (P, 4), 每个2D gaussian的协方差矩阵的逆矩阵以及它的不透明度
+		imgState.accum_alpha,  // [out], 渲染过程后每个像素的最终透明度或透射率值
+		imgState.n_contrib,  // [out], 每个pixel的最后一个贡献的2D gaussian是谁
 		background,  // 背景颜色
-		out_color), debug)  // 输出图像
+		out_color),  // [out], 输出图像
+		debug)  
 
-	return num_rendered;
+	return num_rendered;   // 所有高斯覆盖的tile的总数，可以反应是否有高斯投影到图像上
 }
 
 // 产生对应于前向渲染过程所需的优化梯度

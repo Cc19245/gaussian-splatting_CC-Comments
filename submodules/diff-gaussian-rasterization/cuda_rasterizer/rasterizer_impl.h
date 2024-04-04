@@ -29,24 +29,24 @@ namespace CudaRasterizer
 		chunk = reinterpret_cast<char*>(ptr + count);
 	}
 
+	// 存储所有3D gaussian的各个参数的结构体
 	struct GeometryState
 	{
 		size_t scan_size;
-		float* depths;
+		float* depths;    // (P,), 每个高斯球的深度
 		char* scanning_space;
-		bool* clamped;
-		int* internal_radii;
-		float2* means2D;
-		float* cov3D;
-		float4* conic_opacity;
-		float* rgb;
-		uint32_t* point_offsets;
-		uint32_t* tiles_touched;
+		bool* clamped;    // (P, 3), 每个高斯球的RGB颜色是否超过[0, 1]范围从而产生截断
+		int* internal_radii;   // (P,), 每个高斯球投影到图像上之后的最大半径
+		float2* means2D;  // (P, 2), 每个3D高斯球投影成2D高斯球之后的中心位置
+		float* cov3D;     // (P, 6), 每个3D高斯球的协方差矩阵
+		float4* conic_opacity;   // (P, 4), 每个2D高斯球的协方差矩阵的逆(3个数) + 中心点的不透明度(1个数)
+		float* rgb;       // (P, 3), 每个3D高斯球渲染出来的颜色？
+		uint32_t* point_offsets;   
+		uint32_t* tiles_touched;  // (P,), 存储每个2D gaussian覆盖了多少个tile
 
 		static GeometryState fromChunk(char*& chunk, size_t P);
 	};
 
-	// 存储所有3D gaussian的各个参数的结构体
 	struct ImageState
 	{
 		uint2* ranges;
@@ -74,8 +74,9 @@ namespace CudaRasterizer
 	template<typename T> 
 	size_t required(size_t P)
 	{
-		char* size = nullptr;
-		T::fromChunk(size, P);
+		char* size = nullptr;   // 指针从0开始
+		T::fromChunk(size, P);  // 分配P个T类型的元素的内存，最终size会指向分配之后下一个可用内存的位置
+		// (size_t)sizeb强制把指针转成整数，结果就反映了刚才开辟的内存的大小
 		return ((size_t)size) + 128;
 	}
 };

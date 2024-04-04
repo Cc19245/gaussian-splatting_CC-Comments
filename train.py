@@ -117,6 +117,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # 渲染当前视角的图像
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        # image: (3, H, W)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss

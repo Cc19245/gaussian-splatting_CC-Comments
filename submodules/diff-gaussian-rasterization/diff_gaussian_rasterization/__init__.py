@@ -12,7 +12,8 @@
 from typing import NamedTuple
 import torch.nn as nn
 import torch
-from . import _C
+# 在安装这个包的时候，上一级的setup.py就已经被编译了，然后里面定义的diff_gaussian_rasterization._C就可以被找到了
+from . import _C   
 
 def cpu_deep_copy_tuple(input_tuple):
     copied_tensors = [item.cpu().clone() if isinstance(item, torch.Tensor) else item for item in input_tuple]
@@ -29,6 +30,8 @@ def rasterize_gaussians(
     cov3Ds_precomp,
     raster_settings,
 ):
+    # 这里就和AI葵讲解的CUDA教程一致，也就是使用torch.autograd.Function包装cuda代码之后，需要显式
+    # 调用.apply方法来运算，这样就可以在前向传播之后，调用反向传播计算梯度
     return _RasterizeGaussians.apply(
         means3D,
         means2D,
@@ -42,9 +45,10 @@ def rasterize_gaussians(
     )
 
 class _RasterizeGaussians(torch.autograd.Function):
+    # staticmethod类似仿函数，不用显式地调用forward这个函数，只通过类名就可以自动调用
     @staticmethod
     def forward(
-        ctx,
+        ctx,      # context的缩写ctx，保存前向传播时输入的上下文参数，在反向传播的时候计算本地梯度
         means3D,
         means2D,
         sh,
@@ -62,8 +66,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             means3D,  # (P, 3)  每个3D gaussian的XYZ均值
             colors_precomp,  #  提前计算好的每个3D gaussian的颜色
             opacities,  # (P, 1)  0.1 不透明度
-            scales,  # (P, 3)  每个3D gaussian的XYZ尺度
-            rotations,  # (P, 4)  [1., 0., 0., 0.]    每个3D gaussian的旋转四元组
+            scales,     # (P, 3)  每个3D gaussian的XYZ尺度
+            rotations,  # (P, 4)  [1., 0., 0., 0.]    每个3D gaussian的旋转四元数
             raster_settings.scale_modifier,  # 1.0
             cov3Ds_precomp,  #提前计算好的每个3D gaussian的协方差矩阵
             raster_settings.viewmatrix,  # (4, 4)  相机外参矩阵 world to camera
@@ -72,8 +76,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.tanfovy,  # 0.4717713779864031   垂直视场角一半的正切值
             raster_settings.image_height,  # 546  图像高度
             raster_settings.image_width,   # 979   图像宽度
-            sh,  # (P, 16, 3) 每个3D gaussian对应的球谐系数, R、G、B3个通道分别对应16个球谐系数
-            raster_settings.sh_degree,  # 0 -- &gt; 1 -- &gt; 2 -- &gt; 3      球谐函数的次数, 最开始是0, 每隔1000次迭代, 将球谐函数的次数增加1
+            sh,  # (P, 16, 3) 每个3D gaussian对应的球谐系数, R、G、B通道分别对应16个球谐系数
+            raster_settings.sh_degree,  # 0~3，球谐函数的次数, 最开始是0, 每隔1000次迭代, 将球谐函数的次数增加1
             raster_settings.campos,  # (3,) [-3.9848, -0.3486,  0.1481]  所有相机的中心点坐标
             raster_settings.prefiltered,   # False
             raster_settings.debug   # False
@@ -89,6 +93,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                 print("\nAn error occured in forward. Please forward snapshot_fw.dump for debugging.")
                 raise ex
         else:
+            # 这个函数对应的是CUDA中的 RasterizeGaussiansCUDA 函数，它们之间的对应关系在ext.cpp文件的PYBIND11_MODULE中声明
             num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer = _C.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward

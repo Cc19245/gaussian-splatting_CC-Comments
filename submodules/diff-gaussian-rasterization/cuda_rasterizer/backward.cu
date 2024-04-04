@@ -439,9 +439,9 @@ renderCUDA(
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
 
-	 // 在正向传播中，存储了T的最终值，即所有(1 - alpha)因子的乘积。 
+	// 在正向传播中，存储了T的最终值，即所有(1 - alpha)因子的乘积。 
 	// In the forward, we stored the final value for T, the
-	// product of all (1 - alpha) factors. 
+	// product of all (1 - alpha) factors.  核心就是根据alpha合成的公式，手推每个变量的反向传播公式，推导过程可参考论文里的附录。 
 	const float T_final = inside ? final_Ts[pix_id] : 0;
 	float T = T_final;
 	
@@ -519,7 +519,7 @@ renderCUDA(
 			// Propagate gradients to per-Gaussian colors and keep
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel
 			// pair).
-			float dL_dalpha = 0.0f;
+			float dL_dalpha = 0.0f;  // 可以通过 alpha compositing 的公式，利用 chain rule 倒推各个参数的梯度。
 			const int global_id = collected_id[j];
 			for (int ch = 0; ch < C; ch++)
 			{
