@@ -230,4 +230,5 @@
             "core": "cpp",
             "*.ipp": "cpp"
         },
+        "cmake.configureOnOpen": false,
 }

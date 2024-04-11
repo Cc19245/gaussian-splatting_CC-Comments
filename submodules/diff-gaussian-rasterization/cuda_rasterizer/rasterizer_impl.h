@@ -49,9 +49,9 @@ namespace CudaRasterizer
 
 	struct ImageState
 	{
-		uint2* ranges;
-		uint32_t* n_contrib;
-		float* accum_alpha;
+		uint2* ranges;   // 每个高斯球在 tile_id | depth 排序列表中的范围
+		uint32_t* n_contrib;  // 每个pixel的最后一个贡献的2D gaussian是所在列表范围内的第几个
+		float* accum_alpha;   // 累积不透明度
 
 		static ImageState fromChunk(char*& chunk, size_t N);
 	};

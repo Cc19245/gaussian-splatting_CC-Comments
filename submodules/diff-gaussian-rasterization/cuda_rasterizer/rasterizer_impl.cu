@@ -414,10 +414,11 @@ int CudaRasterizer::Rasterizer::forward(
 // Produce necessary gradients for optimization, corresponding
 // to forward render pass
 void CudaRasterizer::Rasterizer::backward(
-	const int P, int D, int M, int R,
-	const float* background,
-	const int width, int height,
-	const float* means3D,
+	// 3D高斯个数，当前激活的球谐函数次数，所有球谐函数的最高次数，所有3D高斯覆盖的tile的个数
+	const int P, int D, int M, int R,  
+	const float* background,  // 背景颜色
+	const int width, int height,   // 图像宽高
+	const float* means3D,   
 	const float* shs,
 	const float* colors_precomp,
 	const float* scales,
@@ -432,18 +433,20 @@ void CudaRasterizer::Rasterizer::backward(
 	char* geom_buffer,
 	char* binning_buffer,
 	char* img_buffer,
-	const float* dL_dpix,
-	float* dL_dmean2D,
-	float* dL_dconic,
-	float* dL_dopacity,
-	float* dL_dcolor,
-	float* dL_dmean3D,
-	float* dL_dcov3D,
-	float* dL_dsh,
-	float* dL_dscale,
-	float* dL_drot,
+	// 上面的参数都是前向传播的时候进行计算的中间变量
+	const float* dL_dpix, // 上游梯度，loss对每个像素颜色的导数，维度(3, H, W)
+	float* dL_dmean2D,    // loss对Gaussian二维中心坐标的导数
+	float* dL_dconic,     // loss对椭圆二次型矩阵的导数
+	float* dL_dopacity,   // loss对不透明度的导数
+	float* dL_dcolor,     // loss对Gaussian颜色的导数（颜色是从相机中心看向Gaussian的颜色）
+	float* dL_dmean3D,    // loss对Gaussian三维中心坐标的导数
+	float* dL_dcov3D,     // loss对Gaussian三维协方差矩阵的导数
+	float* dL_dsh,        // loss对Gaussian的球谐系数的导数
+	float* dL_dscale,     // loss对Gaussian的缩放参数的导数
+	float* dL_drot,       // loss对Gaussian旋转四元数的导数
 	bool debug)
 {
+	// 下面这些缓冲区都是在前向传播的时候存下来的，现在拿出来用
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
 	BinningState binningState = BinningState::fromChunk(binning_buffer, R);
 	ImageState imgState = ImageState::fromChunk(img_buffer, width * height);
@@ -488,6 +491,7 @@ void CudaRasterizer::Rasterizer::backward(
 	// given to us or a scales/rot pair? If precomputed, pass that. If not,
 	// use the one we computed ourselves.
 	const float* cov3D_ptr = (cov3D_precomp != nullptr) ? cov3D_precomp : geomState.cov3D;
+	// 因为是反向传播，所以preprocess放在后面了
 	CHECK_CUDA(BACKWARD::preprocess(P, D, M,
 		(float3*)means3D,
 		radii,
@@ -506,6 +510,7 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dconic,
 		(glm::vec3*)dL_dmean3D,
 		dL_dcolor,
+		// 以下是输出变量
 		dL_dcov3D,
 		dL_dsh,
 		(glm::vec3*)dL_dscale,

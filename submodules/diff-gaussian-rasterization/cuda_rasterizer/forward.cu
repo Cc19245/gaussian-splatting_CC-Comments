@@ -410,7 +410,7 @@ renderCUDA(
 		int progress = i * BLOCK_SIZE + block.thread_rank();  //thread_rank：当前线程在组内的标号，区间为[0, num_threads)
 		if (range.x + progress < range.y)   // 如果当前线程有效，即处理的高斯球不越界
 		{
-			//point_list表示与已排序的point_list_keys对应的高斯球编号，coll_id为当前线程处理的高斯球编号
+			// point_list表示与已排序的point_list_keys对应的高斯球编号，coll_id为当前线程处理的高斯球编号
 			int coll_id = point_list[range.x + progress];
 			collected_id[block.thread_rank()] = coll_id;  //当前线程处理的高斯球id
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];  //points_xy_image:高斯椭圆中心在像素平面的坐标
@@ -506,7 +506,7 @@ void FORWARD::render(
 		colors,   // 每个3D gaussian对应的RGB颜色
 		conic_opacity,  // 每个2D gaussian的协方差矩阵的逆矩阵以及它的不透明度
 		final_T,  // [out], 渲染过程后每个像素的最终透明度或透射率值
-		n_contrib,  // [out], 每个pixel的最后一个贡献的2D gaussian是谁
+		n_contrib,  // [out], 每个pixel的最后一个贡献的2D gaussian是所在列表范围内的第几个
 		bg_color,   // 背景颜色
 		out_color); // [out], 输出图像
 }

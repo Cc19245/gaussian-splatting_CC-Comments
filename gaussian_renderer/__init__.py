@@ -33,6 +33,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     """
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     # 创建一个零张量，并要求PyTorch对其计算梯度，用于后续获取屏幕空间中3D高斯均值的梯度
+    #! 疑问：这个变量好像没用到
     screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
     try:
         # 让screenspace_points在反向传播时接受梯度
