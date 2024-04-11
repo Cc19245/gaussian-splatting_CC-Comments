@@ -84,6 +84,7 @@ class Scene:
             random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
 
         # 这个结果就是一个数字，不知道干嘛的？
+        #; 场景的尺寸范围，用于后续高斯球自适应密度控制的时候判断高斯球的大小是否合适
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 
         # 根据resolution_scales加载不同分辨率的训练和测试位姿

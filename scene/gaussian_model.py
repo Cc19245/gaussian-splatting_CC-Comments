@@ -426,10 +426,11 @@ class GaussianModel:
         """
         # 删除Gaussian并移除对应的所有属性
         # 生成有效点的掩码并更新优化器中的参数
-        valid_points_mask = ~mask
+        valid_points_mask = ~mask  # 有效的高斯点的标志位
+        # 从优化器中只保留有效的高斯球的相关参数
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
 
-        # 更新各参数
+        # 重新从优化器中读取这些参数到类成员变量中，结果就相当于删掉了不需要的高斯球
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
@@ -481,7 +482,10 @@ class GaussianModel:
         "scaling" : new_scaling,
         "rotation" : new_rotation}
 
+        # 把新增的高斯加入到优化器中
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
+
+        # 从优化器中重新读取参数，结果重新赋值给类的成员变量，这样就完成了新高斯的添加
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
@@ -542,12 +546,11 @@ class GaussianModel:
         这意味着这些高斯在空间中可能表示的细节不足，需要通过克隆来增加细节。
         """
         # Extract points that satisfy the gradient condition
-        # 选择满足条件的点
+        # 提取出大于阈值`grad_threshold`且缩放参数小于self.percent_dense * scene_extent的Gaussians，在下面进行克隆
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
         
-        # 提取出大于阈值`grad_threshold`且缩放参数较小（小于self.percent_dense * scene_extent）的Gaussians，在下面进行克隆
         # 提取这些点的属性
         new_xyz = self._xyz[selected_pts_mask]  # 位置
         new_features_dc = self._features_dc[selected_pts_mask]      # 直流分量（基本颜色）
@@ -564,7 +567,7 @@ class GaussianModel:
         对3D高斯分布进行密集化和修剪的操作
 
         :param max_grad: 梯度的最大阈值，用于判断是否需要克隆或分割。
-        :param min_opacity: 不透明度的最小阈值，低于此值的3D高斯将被删除。
+        :param min_opacity: 不透明度的最小阈值(0.005), 低于此值的3D高斯将被删除。
         :param extent: 场景的尺寸范围，用于评估高斯分布的大小是否合适。
         :param max_screen_size: 最大屏幕尺寸阈值，用于修剪过大的高斯分布。
         """
@@ -572,7 +575,7 @@ class GaussianModel:
         grads = self.xyz_gradient_accum / self.denom  # 计算平均梯度
         grads[grads.isnan()] = 0.0
 
-        # 根据梯度和尺寸阈值进行克隆或分割操作
+        # 根据梯度和场景范围阈值进行克隆或分割操作
         self.densify_and_clone(grads, max_grad, extent)   # 通过克隆增加密度
         self.densify_and_split(grads, max_grad, extent)   # 通过分裂增加密度
 
@@ -587,13 +590,13 @@ class GaussianModel:
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         
-        # 应用修剪掩码
+        # 删除不符合要求的3D高斯分布
         self.prune_points(prune_mask)
 
-        # 清理CUDA缓存以释放资源
+        # 释放已分配但未使用的 GPU 存储空间，因为前面进行了删除3D高斯的操作，这里就释放缓存
         torch.cuda.empty_cache()
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
-        # 统计坐标的累积梯度和均值的分母（即迭代步数？）
+        # 统计2D高斯的像素坐标的累积梯度和均值的分母（即迭代步数？）
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1

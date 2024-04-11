@@ -115,9 +115,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # 根据设置决定是否使用随机背景颜色
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        # 渲染当前视角的图像
+        # Step 重点：渲染当前视角的图像
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
-        # image: (3, H, W)
+        # image: (3, H, W) 渲染得到的图像
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
@@ -135,6 +135,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # 更新进度条和损失显示
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             if iteration % 10 == 0:
+                # set_postfix 是一个用于设置进度条显示后缀信息的方法
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}"})
                 progress_bar.update(10)
             if iteration == opt.iterations:
@@ -149,13 +150,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Densification
             # 在指定迭代区间内，对3D高斯模型进行增密和修剪
-            if iteration < opt.densify_until_iter:
-                # Keep track of max radii in image-space for pruning
+            if iteration < opt.densify_until_iter:  # 默认参数为15_000
+                # Keep track of max radii in image-space for pruning 
+                # 在图像空间跟踪最大半径，以便进行修剪操作
+                # 更新高斯球投影到图像上的最大半径
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                # 累积2D高斯中心的梯度值和跟踪次数
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
+                # densify_from_iter: 默认500， densification_interval: 默认100
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    # opacity_reset_interval: 默认3000
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    # densify_grad_threshold: 默认0.0002，也就是累积梯度超过这个阈值之后，就需要对高斯球进行增密和修剪
                     gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold)
                 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
