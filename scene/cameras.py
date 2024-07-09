@@ -52,11 +52,11 @@ class Camera(nn.Module):
         self.trans = trans   # 相机中心的平移
         self.scale = scale   # 相机中心坐标的缩放
 
-        # 世界到相机坐标系的变换矩阵，4×4
+        # 世界到相机坐标系的变换矩阵, 4×4
         #! 疑问：最后又transpose是干嘛的？和glm的列存储有关吗？
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()  
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()  # 投影矩阵
-        # bmm是batch matrix multiply, 即批量矩阵乘法，但是这里先unsqueeze扩展一个维度，最后又squeeze压缩这个维度，不知道为啥
+        # bmm是batch matrix multiply, 即批量矩阵乘法, 但是这里先unsqueeze扩展一个维度, 最后又squeeze压缩这个维度, 不知道为啥
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)  # 从世界坐标系到图像的变换矩阵
         self.camera_center = self.world_view_transform.inverse()[3, :3]  # 相机在世界坐标系下的坐标
 

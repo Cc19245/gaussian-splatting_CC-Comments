@@ -19,8 +19,8 @@
 namespace CudaRasterizer
 {
 	// 在预分配的内存块（chunk）中为不同类型的数组（ptr）分配空间
-	// chunk（一个指向当前内存块位置的指针引用），ptr（一个指向分配数组的指针引用），count（数组中元素的数量），alignment（内存对齐要求）
-	// 首先计算新的偏移量，以确保 ptr 的对齐，然后更新 chunk 以指向内存块中下一个可用位置
+	// chunk（一个指向当前内存块位置的指针引用）, ptr（一个指向分配数组的指针引用）, count（数组中元素的数量）, alignment（内存对齐要求）
+	// 首先计算新的偏移量, 以确保 ptr 的对齐, 然后更新 chunk 以指向内存块中下一个可用位置
 	template <typename T>
 	static void obtain(char*& chunk, T*& ptr, std::size_t count, std::size_t alignment)
 	{
@@ -70,13 +70,13 @@ namespace CudaRasterizer
 
 	// 计算存储 T 类型数据所需的内存大小的函数
 	// 通过调用 T::fromChunk 并传递一个空指针（nullptr）来模拟内存分配过程
-	// 通过这个过程，它确定了实际所需的内存大小，加上额外的 128 字节以满足可能的内存对齐要求
+	// 通过这个过程, 它确定了实际所需的内存大小, 加上额外的 128 字节以满足可能的内存对齐要求
 	template<typename T> 
 	size_t required(size_t P)
 	{
 		char* size = nullptr;   // 指针从0开始
-		T::fromChunk(size, P);  // 分配P个T类型的元素的内存，最终size会指向分配之后下一个可用内存的位置
-		// (size_t)sizeb强制把指针转成整数，结果就反映了刚才开辟的内存的大小
+		T::fromChunk(size, P);  // 分配P个T类型的元素的内存, 最终size会指向分配之后下一个可用内存的位置
+		// (size_t)sizeb强制把指针转成整数, 结果就反映了刚才开辟的内存的大小
 		return ((size_t)size) + 128;
 	}
 };

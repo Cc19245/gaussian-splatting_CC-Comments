@@ -12,7 +12,7 @@
 from typing import NamedTuple
 import torch.nn as nn
 import torch
-# 在安装这个包的时候，上一级的setup.py就已经被编译了，然后里面定义的diff_gaussian_rasterization._C就可以被找到了
+# 在安装这个包的时候, 上一级的setup.py就已经被编译了, 然后里面定义的diff_gaussian_rasterization._C就可以被找到了
 from . import _C   
 
 def cpu_deep_copy_tuple(input_tuple):
@@ -30,8 +30,8 @@ def rasterize_gaussians(
     cov3Ds_precomp,
     raster_settings,
 ):
-    # 这里就和AI葵讲解的CUDA教程一致，也就是使用torch.autograd.Function包装cuda代码之后，需要显式
-    # 调用.apply方法来运算，这样就可以在前向传播之后，调用反向传播计算梯度
+    # 这里就和AI葵讲解的CUDA教程一致, 也就是使用torch.autograd.Function包装cuda代码之后, 需要显式
+    # 调用.apply方法来运算, 这样就可以在前向传播之后, 调用反向传播计算梯度
     return _RasterizeGaussians.apply(
         means3D,
         means2D,
@@ -45,10 +45,10 @@ def rasterize_gaussians(
     )
 
 class _RasterizeGaussians(torch.autograd.Function):
-    # staticmethod类似仿函数，不用显式地调用forward这个函数，只通过类名就可以自动调用
+    # staticmethod类似仿函数, 不用显式地调用forward这个函数, 只通过类名就可以自动调用
     @staticmethod
     def forward(
-        ctx,      # context的缩写ctx，保存前向传播时输入的上下文参数，在反向传播的时候计算本地梯度
+        ctx,      # context的缩写ctx, 保存前向传播时输入的上下文参数, 在反向传播的时候计算本地梯度
         means3D,
         means2D,
         sh,
@@ -77,7 +77,7 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.image_height,  # 546  图像高度
             raster_settings.image_width,   # 979   图像宽度
             sh,  # (P, 16, 3) 每个3D gaussian对应的球谐系数, R、G、B通道分别对应16个球谐系数
-            raster_settings.sh_degree,  # 0~3，球谐函数的次数, 最开始是0, 每隔1000次迭代, 将球谐函数的次数增加1
+            raster_settings.sh_degree,  # 0~3, 球谐函数的次数, 最开始是0, 每隔1000次迭代, 将球谐函数的次数增加1
             raster_settings.campos,  # (3,) [-3.9848, -0.3486,  0.1481]  所有相机的中心点坐标
             raster_settings.prefiltered,   # False
             raster_settings.debug   # False
@@ -93,7 +93,7 @@ class _RasterizeGaussians(torch.autograd.Function):
                 print("\nAn error occured in forward. Please forward snapshot_fw.dump for debugging.")
                 raise ex
         else:
-            # 这个函数对应的是CUDA中的 RasterizeGaussiansCUDA 函数，它们之间的对应关系在ext.cpp文件的PYBIND11_MODULE中声明
+            # 这个函数对应的是CUDA中的 RasterizeGaussiansCUDA 函数, 它们之间的对应关系在ext.cpp文件的PYBIND11_MODULE中声明
             num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer = _C.rasterize_gaussians(*args)
 
         # Keep relevant tensors for backward
@@ -105,9 +105,9 @@ class _RasterizeGaussians(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_out_color, _):
         """
-        梯度反向传播的函数，注意输入参数（除了ctx之外）的个数和forward函数最终返回的变量个数相等
+        梯度反向传播的函数, 注意输入参数 (除了ctx之外) 的个数和forward函数最终返回的变量个数相等
         grad_out_color: 上游梯度对 color 的梯度
-        _: 用不到，上游梯度对 radii 的梯度
+        _: 用不到, 上游梯度对 radii 的梯度
         """
         # Restore necessary values from context
         num_rendered = ctx.num_rendered
@@ -184,20 +184,20 @@ class GaussianRasterizer(nn.Module):
         """
         初始化光栅化器实例。
         
-        :param raster_settings: 光栅化的设置参数，包括图像高度、宽度、视场角、背景颜色、视图和投影矩阵等。
+        :param raster_settings: 光栅化的设置参数, 包括图像高度、宽度、视场角、背景颜色、视图和投影矩阵等。
         """
         super().__init__()
         self.raster_settings = raster_settings  # 保存光栅化的设置参数
 
     def markVisible(self, positions):
         """
-        标记给定位置的点是否在相机的视锥体内，即判断点是否对相机可见（基于视锥剔除）。
+        标记给定位置的点是否在相机的视锥体内, 即判断点是否对相机可见 (基于视锥剔除) 。
         
-        :param positions: 点的位置，通常是3D高斯分布的中心位置。
-        :return: 一个布尔张量，表示每个点是否可见。
+        :param positions: 点的位置, 通常是3D高斯分布的中心位置。
+        :return: 一个布尔张量, 表示每个点是否可见。
         """
         # Mark visible points (based on frustum culling for camera) with a boolean 
-        with torch.no_grad():  # 不计算梯度，因为这一步只是用于判断可见性
+        with torch.no_grad():  # 不计算梯度, 因为这一步只是用于判断可见性
             raster_settings = self.raster_settings
             # 调用一个C++/CUDA实现的函数来快速计算可见性
             visible = _C.mark_visible(
@@ -209,12 +209,12 @@ class GaussianRasterizer(nn.Module):
 
     def forward(self, means3D, means2D, opacities, shs = None, colors_precomp = None, scales = None, rotations = None, cov3D_precomp = None):
         """
-        光栅化器的前向传播方法，用于将3D高斯分布渲染成2D图像。
+        光栅化器的前向传播方法, 用于将3D高斯分布渲染成2D图像。
 
         :param means3D: 3D高斯分布的中心位置。
-        :param means2D: 屏幕空间中3D高斯分布的预期位置，用于梯度回传。
+        :param means2D: 屏幕空间中3D高斯分布的预期位置, 用于梯度回传。
         :param opacities: 高斯分布的不透明度。
-        :param shs: 球谐系数，用于从方向光照计算颜色。
+        :param shs: 球谐系数, 用于从方向光照计算颜色。
         :param colors_precomp: 预计算的颜色。
         :param scales: 高斯分布的尺度参数。
         :param rotations: 高斯分布的旋转参数。
@@ -230,7 +230,7 @@ class GaussianRasterizer(nn.Module):
         if ((scales is None or rotations is None) and cov3D_precomp is None) or ((scales is not None or rotations is not None) and cov3D_precomp is not None):
             raise Exception('Please provide exactly one of either scale/rotation pair or precomputed 3D covariance!')
         
-        # 如果相关参数未提供，则初始化为空张量
+        # 如果相关参数未提供, 则初始化为空张量
         if shs is None:
             shs = torch.Tensor([])
         if colors_precomp is None:

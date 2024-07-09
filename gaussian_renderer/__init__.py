@@ -24,15 +24,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     """
     渲染场景的函数。
 
-    :param viewpoint_camera: scene.cameras.Camera类的实例, 视点相机，包含视场角、图像尺寸和变换矩阵等信息。
-    :param pc: 3D高斯模型，代表场景中的点云。
-    :param pipe: 渲染管线配置，可能包含调试标志等信息。
-    :param bg_color: 背景颜色，必须是一个GPU上的张量。
-    :param scaling_modifier: 可选的缩放修正值，用于调整3D高斯的尺度。
-    :param override_color: 可选的覆盖颜色，如果指定，则所有3D高斯使用这个颜色而不是自身的颜色。
+    :param viewpoint_camera: scene.cameras.Camera类的实例, 视点相机, 包含视场角、图像尺寸和变换矩阵等信息。
+    :param pc: 3D高斯模型, 代表场景中的点云。
+    :param pipe: 渲染管线配置, 可能包含调试标志等信息。
+    :param bg_color: 背景颜色, 必须是一个GPU上的张量。
+    :param scaling_modifier: 可选的缩放修正值, 用于调整3D高斯的尺度。
+    :param override_color: 可选的覆盖颜色, 如果指定, 则所有3D高斯使用这个颜色而不是自身的颜色。
     """
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-    # 创建一个零张量，并要求PyTorch对其计算梯度，用于后续获取屏幕空间中3D高斯均值的梯度
+    # 创建一个零张量, 并要求PyTorch对其计算梯度, 用于后续获取屏幕空间中3D高斯均值的梯度
     #! 疑问：这个变量好像没用到
     screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
     try:
@@ -55,7 +55,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         bg=bg_color,  # 背景颜色
         scale_modifier=scaling_modifier,
         viewmatrix=viewpoint_camera.world_view_transform,  # W2C矩阵
-        projmatrix=viewpoint_camera.full_proj_transform,   # 整个投影矩阵，包括W2C和视角变换矩阵
+        projmatrix=viewpoint_camera.full_proj_transform,   # 整个投影矩阵, 包括W2C和视角变换矩阵
         sh_degree=pc.active_sh_degree,   # 目前的球谐阶数
         campos=viewpoint_camera.camera_center,  # 相机中心位置
         prefiltered=False,
@@ -103,12 +103,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    # 使用光栅化器渲染可见的3D高斯到图像，并获取它们在屏幕上的半径
-    # 注意这里就是在调用forward函数，因为GaussianRasterizer这个类继承了nn.Module函数
+    # 使用光栅化器渲染可见的3D高斯到图像, 并获取它们在屏幕上的半径
+    # 注意这里就是在调用forward函数, 因为GaussianRasterizer这个类继承了nn.Module函数
     rendered_image, radii = rasterizer(
         means3D = means3D,   # (P, 3)
         means2D = means2D,   # (P, 3), 这个实际没有用到
-        shs = shs,   # (P, 16, 3)，所有阶的球谐系数
+        shs = shs,   # (P, 16, 3), 所有阶的球谐系数
         colors_precomp = colors_precomp,   # None
         opacities = opacity,   # (P, 1)
         scales = scales,   # (P, 3)

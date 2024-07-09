@@ -163,7 +163,7 @@ __global__ void computeCov2DCUDA(int P,
 	// Fetch gradients, recompute 2D covariance and relevant 
 	// intermediate forward results needed in the backward.
 	float3 mean = means[idx];
-	// 注意dL_dconics在上一步反向传播计算的时候赋值的位置是x/y/w，没有z，因此这里使用的是0,1,3位置的数据
+	// 注意dL_dconics在上一步反向传播计算的时候赋值的位置是x/y/w, 没有z, 因此这里使用的是0,1,3位置的数据
 	float3 dL_dconic = { dL_dconics[4 * idx], dL_dconics[4 * idx + 1], dL_dconics[4 * idx + 3] };
 	float3 t = transformPoint4x3(mean, view_matrix);
 	
@@ -399,10 +399,10 @@ __global__ void preprocessCUDA(
 }
 
 /**
- * @brief 这个函数中每个线程负责一个像素，计算loss对Gaussian的
+ * @brief 这个函数中每个线程负责一个像素, 计算loss对Gaussian的
  *  二维中心坐标、椭圆二次型矩阵、不透明度和Gaussian颜色的导。
  *  参考: https://blog.csdn.net/qaqwqaqwq/article/details/136942024
- * （这个博客写的非常好，下面的代码都可以和博客公式对应上）
+ * （这个博客写的非常好, 下面的代码都可以和博客公式对应上）
  */
 // Backward version of the rendering procedure.
 template <uint32_t C>
@@ -417,14 +417,14 @@ renderCUDA(
 	const float* __restrict__ colors,    // 每个高斯球的RGB颜色
 	const float* __restrict__ final_Ts,  // 每个像素渲染的最终不透明度
 	const uint32_t* __restrict__ n_contrib,  // 每个像素最后渲染的高斯球在这个tile包含的所有高斯球中的索引
-	const float* __restrict__ dL_dpixels,   // 上游梯度，loss对像素的偏导, 维度(3, H, W)
+	const float* __restrict__ dL_dpixels,   // 上游梯度, loss对像素的偏导, 维度(3, H, W)
 	// 下面都是输出结果
 	float3* __restrict__ dL_dmean2D,
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors)
 {
-	// 重新进行光栅化计算，计算所需的块信息。
+	// 重新进行光栅化计算, 计算所需的块信息。
 	// We rasterize again. Compute necessary block info.
 	auto block = cg::this_thread_block();
 	const uint32_t horizontal_blocks = (W + BLOCK_X - 1) / BLOCK_X;
@@ -439,19 +439,19 @@ renderCUDA(
 	// 当前处理的tile对应的3D gaussian在 tile_id | depth 列表中的起始id和结束id
 	const uint2 range = ranges[block.group_index().y * horizontal_blocks + block.group_index().x];
 
-	// range.y - range.x是当前tile覆盖的所有高斯个数，rounds就是计算需要多少轮次才能把所有高斯都处理完
+	// range.y - range.x是当前tile覆盖的所有高斯个数, rounds就是计算需要多少轮次才能把所有高斯都处理完
 	const int rounds = ((range.y - range.x + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	bool done = !inside;
 	int toDo = range.y - range.x;
 
-	// 共享显存，速度更快
+	// 共享显存, 速度更快
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];   // 每个高斯球的颜色
 
-	// 在正向传播中，存储了T的最终值，即所有(1 - alpha)因子的乘积。 
+	// 在正向传播中, 存储了T的最终值, 即所有(1 - alpha)因子的乘积。 
 	// In the forward, we stored the final value for T, the
 	// product of all (1 - alpha) factors.  
 	const float T_final = inside ? final_Ts[pix_id] : 0;
@@ -460,13 +460,13 @@ renderCUDA(
 	// 从后面开始。最后一个贡献的高斯的ID是从每个像素的正向传播中已知的
 	// We start from the back. The ID of the last contributing
 	// Gaussian is known from each pixel from the forward.
-	uint32_t contributor = toDo;  //; 因为后面遍历高斯球是从后往前遍历的，所以这里一开始的贡献个数就是所有高斯球个数
+	uint32_t contributor = toDo;  //; 因为后面遍历高斯球是从后往前遍历的, 所以这里一开始的贡献个数就是所有高斯球个数
 	// 当前像素在渲染时最后一个作贡献的高斯的ID
 	const int last_contributor = inside ? n_contrib[pix_id] : 0;
 
-	// C是像素通道个数，宏定义一直为3
+	// C是像素通道个数, 宏定义一直为3
 	float accum_rec[C] = { 0 };
-	float dL_dpixel[C];  // loss对该像素RGB通道的导数，实际就是输入的上游梯度变量
+	float dL_dpixel[C];  // loss对该像素RGB通道的导数, 实际就是输入的上游梯度变量
 	if (inside)
 		for (int i = 0; i < C; i++)
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];   // 把上游梯度中和当前像素有关的部分取出来
@@ -474,7 +474,7 @@ renderCUDA(
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
 
-	// 从后面开始加载辅助数据到共享内存中，并以相反顺序加载
+	// 从后面开始加载辅助数据到共享内存中, 并以相反顺序加载
 	// Gradient of pixel coordinate w.r.t. normalized 
 	// screen-space viewport corrdinates (-1 to 1)
 	// 像素坐标对像平面坐标(ndc空间)的导（参见 ndc2Pix 函数）
@@ -484,15 +484,15 @@ renderCUDA(
 	// Traverse all Gaussians
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
-		// Step 1.将辅助数据加载到共享内存中，从后面开始并以相反的顺序加载它们
+		// Step 1.将辅助数据加载到共享内存中, 从后面开始并以相反的顺序加载它们
 		// Load auxiliary data into shared memory, start in the BACK
 		// and load them in revers order.
 		block.sync();
 		const int progress = i * BLOCK_SIZE + block.thread_rank();  // 当前处理第几个高斯
 		if (range.x + progress < range.y)
 		{
-			//; 注意：这里的coll_id是从最后一个高斯开始遍历的，也就是整体从后往前遍历高斯球
-			// point_list表示与已排序的point_list_keys对应的高斯球编号，coll_id为当前处理的高斯球编号
+			//; 注意：这里的coll_id是从最后一个高斯开始遍历的, 也就是整体从后往前遍历高斯球
+			// point_list表示与已排序的point_list_keys对应的高斯球编号, coll_id为当前处理的高斯球编号
 			const int coll_id = point_list[range.y - progress - 1];  
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
@@ -502,18 +502,18 @@ renderCUDA(
 		}
 		block.sync();
 
-		// Step 2.遍历本次取出来的256个高斯球，从后往前挨个计算梯度
+		// Step 2.遍历本次取出来的256个高斯球, 从后往前挨个计算梯度
 		// Iterate over Gaussians
 		for (int j = 0; !done && j < min(BLOCK_SIZE, toDo); j++)
 		{
-			// 跟踪当前高斯的ID。如果这个高斯位于这个像素的最后一个贡献者之后，就跳过
+			// 跟踪当前高斯的ID。如果这个高斯位于这个像素的最后一个贡献者之后, 就跳过
 			// Keep track of current Gaussian ID. Skip, if this one
 			// is behind the last contributor for this pixel.
-			// 如果当前高斯球序号 >= 前向传播时候最后贡献的高斯球序号，那么不用后续计算梯度，直接continue
+			// 如果当前高斯球序号 >= 前向传播时候最后贡献的高斯球序号, 那么不用后续计算梯度, 直接continue
 			contributor--;
 			if (contributor >= last_contributor)
 				continue;
-			// 之所以不直接把contributor设置成last_contributor，是因为排在我的
+			// 之所以不直接把contributor设置成last_contributor, 是因为排在我的
 			// last_contributor后面的Gaussian可能对于其他像素来说是可见的
 
 			// 像之前一样计算混合值
@@ -530,14 +530,14 @@ renderCUDA(
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
-			// 当前像素处理完当前高斯球之后，它的累积不透明度就把当前高斯球的除掉
+			// 当前像素处理完当前高斯球之后, 它的累积不透明度就把当前高斯球的除掉
 			T = T / (1.f - alpha);   // 一点一点把T除掉（T原本是累乘）
 			const float dchannel_dcolor = alpha * T;
 
-			// 将梯度传播到每个高斯的颜色，并保留关于alpha（高斯/像素对的混合因子）的梯度
+			// 将梯度传播到每个高斯的颜色, 并保留关于alpha（高斯/像素对的混合因子）的梯度
 			// Propagate gradients to per-Gaussian colors and keep
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel pair).
-			float dL_dalpha = 0.0f;  // 可以通过 alpha compositing 的公式，利用 chain rule 倒推各个参数的梯度。
+			float dL_dalpha = 0.0f;  // 可以通过 alpha compositing 的公式, 利用 chain rule 倒推各个参数的梯度。
 			const int global_id = collected_id[j];  // 当前处理的高斯球的编号
 			for (int ch = 0; ch < C; ch++)
 			{
@@ -547,17 +547,17 @@ renderCUDA(
 				// Update last color (to be used in the next iteration)
 				// 当前高斯球后面的所有Gaussian的颜色贡献
 				accum_rec[ch] = last_alpha * last_color[ch] + (1.f - last_alpha) * accum_rec[ch];
-				last_color[ch] = c;   // 当前高斯球的颜色备份，给下一次循环使用
+				last_color[ch] = c;   // 当前高斯球的颜色备份, 给下一次循环使用
 
-				const float dL_dchannel = dL_dpixel[ch];   // 上游梯度，Loss对渲染像素的梯度
-				//; 这里 += 是因为三个通道都对 alpha 有梯度，公式推导结果按照矩阵形式写应该是 1x3向量 * 3x1向量，结果是标量
+				const float dL_dchannel = dL_dpixel[ch];   // 上游梯度, Loss对渲染像素的梯度
+				//; 这里 += 是因为三个通道都对 alpha 有梯度, 公式推导结果按照矩阵形式写应该是 1x3向量 * 3x1向量, 结果是标量
 				dL_dalpha += (c - accum_rec[ch]) * dL_dchannel;
 				// 更新关于3D高斯球颜色的梯度
-				//; 使用原子操作，因为这个像素只是可能受此高斯影响的众多像素之一
+				//; 使用原子操作, 因为这个像素只是可能受此高斯影响的众多像素之一
 				// Update the gradients w.r.t. color of the Gaussian. 
 				// Atomic, since this pixel is just one of potentially
 				// many that were affected by this Gaussian.
-				// atomicAdd是原子加法操作，它可以确保多个线程同时访问同一内存位置时不会出现竞争条件
+				// atomicAdd是原子加法操作, 它可以确保多个线程同时访问同一内存位置时不会出现竞争条件
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
 			}
 			dL_dalpha *= T;
@@ -587,7 +587,7 @@ renderCUDA(
 			atomicAdd(&dL_dmean2D[global_id].x, dL_dG * dG_ddelx * ddelx_dx);
 			atomicAdd(&dL_dmean2D[global_id].y, dL_dG * dG_ddely * ddely_dy);
 
-			// 更新关于2D协方差（2x2矩阵，对称）的梯度
+			// 更新关于2D协方差（2x2矩阵, 对称）的梯度
 			// Update gradients w.r.t. 2D covariance (2x2 matrix, symmetric)
 			atomicAdd(&dL_dconic2D[global_id].x, -0.5f * gdx * d.x * dL_dG);
 			atomicAdd(&dL_dconic2D[global_id].y, -0.5f * gdx * d.y * dL_dG);
@@ -633,8 +633,8 @@ void BACKWARD::preprocess(
 	glm::vec4* dL_drot)
 {
 	// 传播用于2D圆锥矩阵计算路径的梯度。
-	// 由于过程较长，因此它有自己的内核，而不是作为“预处理”的一部分。
-	// 完成后，损失梯度相对于3D均值已被修改，且相对于3D协方差矩阵的梯度已被计算。
+	// 由于过程较长, 因此它有自己的内核, 而不是作为“预处理”的一部分。
+	// 完成后, 损失梯度相对于3D均值已被修改, 且相对于3D协方差矩阵的梯度已被计算。
 	// Propagate gradients for the path of 2D conic matrix computation. 
 	// Somewhat long, thus it is its own kernel rather than being part of 
 	// "preprocess". When done, loss gradient w.r.t. 3D means has been
@@ -653,8 +653,8 @@ void BACKWARD::preprocess(
 		(float3*)dL_dmean3D,
 		dL_dcov3D);
 
-	// 传播剩余步骤的梯度：完成3D均值梯度，
-	// 将颜色梯度传播到球谐系数（如果需要），将3D协方差矩阵的梯度传播到尺度和旋转。
+	// 传播剩余步骤的梯度：完成3D均值梯度, 
+	// 将颜色梯度传播到球谐系数（如果需要）, 将3D协方差矩阵的梯度传播到尺度和旋转。
 	// Propagate gradients for remaining steps: finish 3D mean gradients,
 	// propagate color gradients to SH (if desireD), propagate 3D covariance
 	// matrix gradients to scale and rotation.
@@ -689,7 +689,7 @@ void BACKWARD::render(
 	const float* colors,    // 每个高斯球的RGB颜色
 	const float* final_Ts,  // 每个3D高斯渲染结束时候的累积不透明度
 	const uint32_t* n_contrib, // 渲染时最后一个作贡献的高斯球在ranges中的序号
-	const float* dL_dpixels,   // 上游梯度，总Loss对渲染的图像像素的梯度，维度(3, H, W)
+	const float* dL_dpixels,   // 上游梯度, 总Loss对渲染的图像像素的梯度, 维度(3, H, W)
 	// 以下为输出结果
 	float3* dL_dmean2D,
 	float4* dL_dconic2D,

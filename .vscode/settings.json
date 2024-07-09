@@ -104,9 +104,9 @@
         "todo-tree.highlights.customHighlight": {
         "//Done": {
         // 关于配色的色号：http://xh.5156edu.com/page/z1015m9220j18754.html
-        // 这个色号叫做html颜色代码，注意写颜色代码的时候一定别忘了前面的 # 
-        "foreground": "#FF4500",     // 前景色，就是字体的颜色
-        "icon": "check",            // 在左侧的todo tree查看的时候有对应的图标，这个图标只有特定的几种，所以名字也是确定的
+        // 这个色号叫做html颜色代码, 注意写颜色代码的时候一定别忘了前面的 # 
+        "foreground": "#FF4500",     // 前景色, 就是字体的颜色
+        "icon": "check",            // 在左侧的todo tree查看的时候有对应的图标, 这个图标只有特定的几种, 所以名字也是确定的
         "iconColour": "#FF4500",    // 图标的颜色
         "type": "text-and-comment",  
         },

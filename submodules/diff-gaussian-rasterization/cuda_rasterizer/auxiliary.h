@@ -139,13 +139,13 @@ __forceinline__ __device__ float sigmoid(float x)
 }
 
 // 判断当前处理的3D gaussian的中心点(均值XYZ)是否在视锥（frustum）内
-// __forceinline__是一个编译器指令，用于提示编译器将函数内联展开，以提高程序执行的效率
-// __device__表示这个函数被GPU调用，也在GPU上执行
+// __forceinline__是一个编译器指令, 用于提示编译器将函数内联展开, 以提高程序执行的效率
+// __device__表示这个函数被GPU调用, 也在GPU上执行
 __forceinline__ __device__ bool in_frustum( 
 	int idx,   // 当前处理的3D gaussian的索引
 	const float* orig_points,   // world系下的3D高斯球中心点坐标
 	const float* viewmatrix,    // W2C
-	const float* projmatrix,    // (4, 4), 整个投影矩阵，包括W2C和视角变换矩阵
+	const float* projmatrix,    // (4, 4), 整个投影矩阵, 包括W2C和视角变换矩阵
 	bool prefiltered,   // False
 	float3& p_view)    // 输出结果
 {
@@ -154,12 +154,12 @@ __forceinline__ __device__ bool in_frustum(
 
 	// Bring points to screen space
 	// 将当前3D gaussian的中心点投影到归一化设备坐标系 (NDC)
-	//; 注意这里的代码先直接投影到ray space，但是最后并没有用p_proj的结果来判断，所以不用管
+	//; 注意这里的代码先直接投影到ray space, 但是最后并没有用p_proj的结果来判断, 所以不用管
 	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
 
-	//; 这里是把点从world系转到相机系，然后用是否在相机前方判断是否在视锥内
+	//; 这里是把点从world系转到相机系, 然后用是否在相机前方判断是否在视锥内
 	p_view = transformPoint4x3(p_orig, viewmatrix);
 
 	if (p_view.z <= 0.2f)// || ((p_proj.x < -1.3 || p_proj.x > 1.3 || p_proj.y < -1.3 || p_proj.y > 1.3)))

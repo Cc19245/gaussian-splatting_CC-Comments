@@ -44,22 +44,22 @@ def get_expon_lr_func(
     :return HoF which takes step as input
     """
     """
-    创建一个学习率调度函数，该函数根据训练进度动态调整学习率
+    创建一个学习率调度函数, 该函数根据训练进度动态调整学习率
 
     :param lr_init: 初始学习率。
     :param lr_final: 最终学习率。
-    :param lr_delay_steps: 学习率延迟步数，在这些步数内学习率将被降低。
-    :param lr_delay_mult: 学习率延迟乘数，用于计算初始延迟学习率。
-    :param max_steps: 最大步数，用于规范化训练进度。
-    :return: 一个函数，根据当前步数返回调整后的学习率。
+    :param lr_delay_steps: 学习率延迟步数, 在这些步数内学习率将被降低。
+    :param lr_delay_mult: 学习率延迟乘数, 用于计算初始延迟学习率。
+    :param max_steps: 最大步数, 用于规范化训练进度。
+    :return: 一个函数, 根据当前步数返回调整后的学习率。
     """
 
     def helper(step):
-        # 如果步数小于0或学习率为0，直接返回0，表示不进行优化
+        # 如果步数小于0或学习率为0, 直接返回0, 表示不进行优化
         if step < 0 or (lr_init == 0.0 and lr_final == 0.0):
             # Disable this parameter
             return 0.0
-        # 如果设置了学习率延迟步数，计算延迟调整后的学习率
+        # 如果设置了学习率延迟步数, 计算延迟调整后的学习率
         if lr_delay_steps > 0:
             # A kind of reverse cosine decay.
             delay_rate = lr_delay_mult + (1 - lr_delay_mult) * np.sin(
@@ -67,7 +67,7 @@ def get_expon_lr_func(
             )
         else:
             delay_rate = 1.0
-        # 根据步数计算学习率的对数线性插值，实现从初始学习率到最终学习率的平滑过渡
+        # 根据步数计算学习率的对数线性插值, 实现从初始学习率到最终学习率的平滑过渡
         t = np.clip(step / max_steps, 0, 1)
         log_lerp = np.exp(np.log(lr_init) * (1 - t) + np.log(lr_final) * t)
         # 返回调整后的学习率
@@ -137,7 +137,7 @@ def build_scaling_rotation(s, r):
     :return: 尺度-旋转矩阵。
     """
 
-    # 初始化尺度矩阵，s.shape[0]
+    # 初始化尺度矩阵, s.shape[0]
     L = torch.zeros((s.shape[0], 3, 3), dtype=torch.float, device="cuda")
     R = build_rotation(r)   # 计算旋转矩阵
 
